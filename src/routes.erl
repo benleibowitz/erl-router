@@ -9,11 +9,17 @@
 -module(routes).
 -author("ben").
 
--export([get_ip_and_port/1]).
+-export([get_dest/1]).
 
 %% Define routes here
-get_ip_and_port(<<"/foo">>) ->
-  {ok, "127.0.0.1", "4567"};
+get_dest(<<"/a">>) ->
+  {ok, "127.0.0.1", "35000"};
+get_dest(<<"/b">>) ->
+  {ok, "127.0.0.1", "35010"};
+get_dest(<<"/c">>) ->
+  {ok, "127.0.0.1", "35020"};
+get_dest(<<"/d">>) ->
+  {ok, "127.0.0.1", "35030"};
 
-get_ip_and_port(_) ->
+get_dest(_) ->
   {error, null, null}.
