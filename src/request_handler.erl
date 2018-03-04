@@ -1,3 +1,8 @@
+%%
+%% Client -> Router -> App
+%%                      |
+%% Client <- Router <---
+%%
 -module(request_handler).
 -behavior(cowboy_handler).
 
@@ -7,12 +12,21 @@
 
 %% TODO - variable names
 init(Req=#{path := <<Path/binary>>, method := <<Method/binary>>, headers := Headers}, State) ->
-  {ok, _, Req1} = cowboy_req:read_body(Req, #{length => 1000000, period => 100}),
-  {Resp, DestIp, DestPort} = get_dest(Path),
-  case Resp of
-    ok ->
+  handle_req_from_client(Req, Path, Headers, Method, State).
+
+handle_req_from_client(Req, Path, Headers, Method, State) ->
+  {ok, _, Req1} = cowboy_req:read_body(Req, #{length => 1000000, period => 250}),
+
+  %% Did we find backend hostname/port for client's request?
+  case get_dest(Path) of
+    error ->
+      CliResponse = cowboy_req:reply(404, #{<<"content-type">> => <<"text/plain">>}, "404 - router could not find destination route", Req1),
+      {ok, CliResponse, State};
+    {ok, {DestIp, DestPort}} ->
       Dest = build_host(DestIp, DestPort, Path),
       HeaderStrMap = parse_headers(maps:to_list(Headers)),
+
+      %% Send request to app
       {AppRespStatus, AppResp} = httpc:request(http_method_to_atom(Method), {Dest, HeaderStrMap}, [{timeout, timer:seconds(1)}], []),
       case AppRespStatus of
         ok ->
@@ -21,19 +35,16 @@ init(Req=#{path := <<Path/binary>>, method := <<Method/binary>>, headers := Head
           {ok, CliResponse, State};
         error ->
           io:format("Failed to connect: ~p~n", [AppResp]),
-          handle_err(AppResp, Req1, State)
-      end;
-    _ ->
-      CliResponse = cowboy_req:reply(404, #{<<"content-type">> => <<"text/plain">>}, "404 - router could not find destination route", Req1),
-      {ok, CliResponse, State}
+          CliResponse = handle_err_from_app(AppResp, Req1),
+          {ok, CliResponse, State}
+      end
   end.
 
-handle_err(AppResp, Req1, State) ->
+handle_err_from_app(AppResp, Req1) ->
   {ErrMsg, _} = AppResp,
   case ErrMsg of
     failed_connect ->
-      CliResponse = cowboy_req:reply(502, #{<<"content-type">> => <<"text/plain">>}, "Unable to connect to requested service", Req1),
-      {ok, CliResponse, State}
+      cowboy_req:reply(502, #{<<"content-type">> => <<"text/plain">>}, "Unable to connect to requested service", Req1)
   end.
 
 %% Return hostname URL (http://myhost:port/path?k=v)
